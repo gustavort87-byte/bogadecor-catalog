@@ -52,7 +52,7 @@
     // About
     add(`<section class="page text-page grain">
       <span class="eyebrow">¿Quiénes somos?</span>
-      <h2 class="display">Hechas a mano<br>en San Luis Potosí</h2>
+      <h2 class="display">Diseño que transforma<br>tus espacios</h2>
       <p class="lead">Nos apasiona el diseño y la creación de piezas únicas y funcionales.</p>
       <ul class="facts">
         <li><strong>+30 años</strong>Siendo socios estratégicos de hoteles y mueblerías a nivel nacional.</li>
