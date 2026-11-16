@@ -92,7 +92,7 @@
         <span class="num">0${si + 1}</span>
         <h2 class="display">${sec.title}</h2>
         <div class="count">${items.length} ${items.length === 1 ? 'pieza' : 'piezas'}</div>
-        <ul class="names">${items.map((p, i) => `<li>${esc(p.name)}<span>${pad(openerAt + 1 + i)}</span></li>`).join('')}</ul>
+        <ul class="names">${items.map((p, i) => `<li><a class="toc-link" href="#p-${pad(openerAt + 1 + i)}" aria-label="Ir a ${esc(p.name)}, página ${openerAt + 1 + i}">${esc(p.name)}<span>${pad(openerAt + 1 + i)}</span></a></li>`).join('')}</ul>
         <ul class="values">${sec.values.map((v) => `<li>${v}</li>`).join('')}</ul>
       </section>`);
       items.forEach((p, i) => {
@@ -185,9 +185,10 @@
       <span class="eyebrow">Contenido</span>
       <h2 class="display">Índice</h2>
       <p class="note">Cada pieza se fabrica bajo pedido. Las medidas, maderas y acabados que ves aquí son un punto de partida: todos pueden ajustarse a tu proyecto.</p>
-      <div class="cols">${groups.map((g) => `<section><h3>${esc(g.name)}</h3><ol>${g.items.map((t) => `<li>${esc(t.name)}<span class="dots"></span><span class="pg">${pad(t.page)}</span></li>`).join('')}</ol></section>`).join('')}</div>
+      <div class="cols">${groups.map((g) => `<section><h3>${esc(g.name)}</h3><ol>${g.items.map((t) => `<li><a class="toc-link" href="#p-${pad(t.page)}" aria-label="Ir a ${esc(t.name)}, página ${t.page}"><span class="nm">${esc(t.name)}</span><span class="dots"></span><span class="pg">${pad(t.page)}</span></a></li>`).join('')}</ol></section>`).join('')}</div>
     </section>`;
 
-    return pages;
+    // Anchor id on every page: index links (#p-NN) work in the viewer and as internal links in the PDF
+    return pages.map((h, i) => h.replace('<section ', `<section id="p-${pad(i + 1)}" `));
   };
 })();

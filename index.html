@@ -102,8 +102,27 @@
     .foot { position: relative; z-index: 3; padding: 10px clamp(16px, 3vw, 32px) max(14px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; }
     .counter { grid-column: 2; font: 400 11px/1 var(--font-body); letter-spacing: .24em; color: rgba(255,253,249,.8); white-space: nowrap; }
     .hint { font: 300 10px/1.3 var(--font-body); letter-spacing: .08em; color: rgba(255,253,249,.45); }
-    .progress { grid-column: 1 / -1; grid-row: 2; height: 1px; background: rgba(255,253,249,.12); overflow: hidden; }
-    .progress i { display: block; height: 100%; background: #E8BC7A; transform-origin: 0 50%; transform: scaleX(0); transition: transform .6s cubic-bezier(.22,1,.36,1); }
+    /* scrubber: click anywhere or drag to move through the catalog */
+    .scrub { grid-column: 1 / -1; grid-row: 2; position: relative; height: 26px; cursor: pointer; touch-action: none; outline: none; }
+    .scrub .track { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; border-radius: 2px; background: rgba(255,253,249,.14); transform: scaleY(1); transition: transform .25s cubic-bezier(.34,1.56,.64,1); }
+    .scrub:hover .track, .scrub.dragging .track, .scrub:focus-visible .track { transform: scaleY(2); }
+    .scrub .fill { position: absolute; inset: 0; border-radius: inherit; background: #E8BC7A; transform-origin: 0 50%; transform: scaleX(0); transition: transform .5s cubic-bezier(.22,1,.36,1); }
+    .scrub .thumb {
+      position: absolute; top: 50%; left: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+      background: #E8BC7A; box-shadow: 0 2px 8px rgba(0,0,0,.45);
+      transition: transform .5s cubic-bezier(.22,1,.36,1);
+    }
+    .scrub .thumb::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; background: rgba(232,188,122,.25); opacity: 0; transition: opacity .2s ease; }
+    .scrub:hover .thumb::after, .scrub.dragging .thumb::after { opacity: 1; }
+    .scrub:focus-visible .thumb { outline: 2px solid var(--linen); outline-offset: 3px; }
+    .scrub.dragging .fill, .scrub.dragging .thumb { transition: none; }
+    .scrub .tip {
+      position: absolute; bottom: 26px; left: 0; padding: 7px 11px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+      background: var(--linen); color: var(--ink); font: 400 11px/1.2 var(--font-body); letter-spacing: .04em;
+      box-shadow: 0 8px 24px -8px rgba(0,0,0,.6); opacity: 0; transition: opacity .18s ease;
+    }
+    .scrub .tip b { font-weight: 500; color: var(--walnut); margin-right: 6px; letter-spacing: .12em; }
+    .scrub .tip.on { opacity: 1; }
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
     @media (max-width: 640px) {
@@ -147,7 +166,11 @@
     <span class="hint">Usa las flechas, el teclado o desliza</span>
     <span class="counter" id="counter" aria-live="polite"></span>
     <span></span>
-    <div class="progress"><i id="bar"></i></div>
+    <div class="scrub" id="scrub" role="slider" tabindex="0" aria-label="Avanzar o retroceder en el catálogo" aria-valuemin="1">
+      <div class="track"><i class="fill" id="bar"></i></div>
+      <span class="thumb" id="thumb"></span>
+      <span class="tip" id="tip"></span>
+    </div>
   </footer>
 
   <script src="productos.js"></script>
@@ -212,14 +235,80 @@
       prefetch();
     }
 
+    // ---- page labels (for the scrubber tooltip) ----
+    const TITLES = PAGES.map((h, i) => {
+      const m = h.match(/<h2[^>]*>([\s\S]*?)<\/h2>/);
+      if (m) return m[1].replace(/<br\s*\/?>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+      if (i === 0) return 'Portada';
+      if (h.includes('art-full')) return 'Arte para interiores';
+      return '';
+    });
+    const pagesOf = (k) => spreads[k].filter((x) => x != null);
+    const labelOf = (k) => {
+      const ps = pagesOf(k);
+      const nums = ps.map((x) => String(x + 1).padStart(2, '0')).join('–');
+      const title = ps.map((x) => TITLES[x]).filter(Boolean).join(' · ');
+      return { nums, title };
+    };
+
+    // ---- scrubber ----
+    const scrub = $('scrub'), fillEl = $('bar'), thumb = $('thumb'), tip = $('tip');
+    let dragging = false;
+    const fracOf = (k) => spreads.length > 1 ? k / (spreads.length - 1) : 1;
+    const kOf = (frac) => Math.round(Math.min(1, Math.max(0, frac)) * (spreads.length - 1));
+    function setScrub(frac) {
+      fillEl.style.transform = `scaleX(${frac})`;
+      thumb.style.transform = `translateX(${frac * scrub.clientWidth}px)`;
+    }
+    function showTip(k, frac) {
+      const { nums, title } = labelOf(k);
+      tip.innerHTML = `<b>${nums}</b>${title}`;
+      const w = scrub.clientWidth, tw = tip.offsetWidth;
+      const x = Math.min(w - tw, Math.max(0, frac * w - tw / 2));
+      tip.style.transform = `translateX(${x}px)`;
+      tip.classList.add('on');
+    }
+    const fracAt = (e) => { const r = scrub.getBoundingClientRect(); return (e.clientX - r.left) / r.width; };
+    scrub.addEventListener('pointerdown', (e) => {
+      if (busy) return;
+      dragging = true; scrub.classList.add('dragging');
+      scrub.setPointerCapture(e.pointerId);
+      scrubTo(fracAt(e));
+    });
+    scrub.addEventListener('pointermove', (e) => {
+      const f = Math.min(1, Math.max(0, fracAt(e)));
+      if (dragging) scrubTo(f); else showTip(kOf(f), f);
+    });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false; scrub.classList.remove('dragging');
+      setScrub(fracOf(cur)); tip.classList.remove('on');
+    };
+    scrub.addEventListener('pointerup', endDrag);
+    scrub.addEventListener('pointercancel', endDrag);
+    scrub.addEventListener('pointerleave', () => { if (!dragging) tip.classList.remove('on'); });
+    function scrubTo(frac) {
+      const f = Math.min(1, Math.max(0, frac));
+      setScrub(f);
+      const k = kOf(f);
+      showTip(k, f);
+      if (k !== cur) { cur = k; render(); }
+    }
+
     function ui() {
       const [L, R] = spreads[cur];
-      const shown = [L, R].filter((x) => x != null).map((x) => String(x + 1).padStart(2, '0'));
-      $('counter').textContent = shown.join('–') + '  /  ' + String(N).padStart(2, '0');
+      const { nums } = labelOf(cur);
+      $('counter').textContent = nums + '  /  ' + String(N).padStart(2, '0');
       $('prev').disabled = cur === 0;
       $('next').disabled = cur === spreads.length - 1;
-      $('bar').style.transform = `scaleX(${spreads.length > 1 ? cur / (spreads.length - 1) : 1})`;
+      if (!dragging) setScrub(fracOf(cur));
+      scrub.setAttribute('aria-valuemax', N);
+      scrub.setAttribute('aria-valuenow', pagesOf(cur)[0] + 1);
+      scrub.setAttribute('aria-valuetext', `Página ${nums} de ${N}`);
       spine.classList.toggle('on', mode === 'spread' && L != null && R != null);
+      // shareable link to the current page
+      const first = pagesOf(cur)[0];
+      history.replaceState(null, '', first > 0 ? '#' + (first + 1) : location.pathname + location.search);
     }
 
     function prefetch() {
@@ -299,8 +388,30 @@
       const k = spreadOf(page);
       if (k < 0 || k === cur) return;
       if (Math.abs(k - cur) === 1) return k > cur ? next() : prev();
-      cur = k; render();
+      jumpTo(k);
     }
+
+    // Long jumps (index, deep links): a short, soft cross-fade instead of flipping many pages
+    function jumpTo(k) {
+      if (reduce) { cur = k; render(); return; }
+      busy = true;
+      const out = book.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease-in', fill: 'forwards' });
+      out.onfinish = () => {
+        cur = k; render();
+        const inn = book.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: 'ease-out' });
+        out.cancel();
+        inn.onfinish = () => { busy = false; };
+      };
+    }
+
+    // Index / section links inside the pages (#p-NN)
+    book.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href^="#p-"]');
+      if (!a) return;
+      e.preventDefault();
+      const n = parseInt(a.getAttribute('href').slice(3), 10);
+      if (n > 0) goToPage(n - 1);
+    });
 
     // controls
     $('next').addEventListener('click', next);
@@ -325,10 +436,10 @@
       }
     });
 
-    addEventListener('resize', layout);
+    addEventListener('resize', () => { layout(); setScrub(fracOf(cur)); });
     layout();
-    // deep link: flip.html#12 opens on page 12
-    const fromHash = () => { const h = parseInt(location.hash.slice(1), 10); if (h > 0) goToPage(Math.min(h, N) - 1); };
+    // deep link: flip.html#12 (or #p-12) opens on page 12
+    const fromHash = () => { const h = parseInt(location.hash.replace(/^#(p-)?/, ''), 10); if (h > 0) goToPage(Math.min(h, N) - 1); };
     addEventListener('hashchange', fromHash);
     fromHash();
   })();
